@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>行動履歴管理アプリ</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="toolbar print-hidden">
+        <div class="toolbar-group">
+          <label class="field">
+            <span>日付</span>
+            <input id="entry-date" type="date" />
+          </label>
+          <button id="add-day-button" type="button">エントリ追加</button>
+          <button id="delete-day-button" type="button">選択エントリ削除</button>
+        </div>
+        <div class="toolbar-group">
+          <label class="field">
+            <span>目盛り</span>
+            <select id="snap-select">
+              <option value="5">5分</option>
+              <option value="10">10分</option>
+              <option value="15" selected>15分</option>
+              <option value="30">30分</option>
+              <option value="60">60分</option>
+            </select>
+          </label>
+          <button id="settings-button" type="button" class="secondary-button">&#9881; 設定</button>
+          <button id="save-button" type="button">JSON保存</button>
+          <button id="load-button" type="button">JSON読込</button>
+          <button id="print-button" type="button">印刷</button>
+          <input id="load-input" type="file" accept=".json,application/json" hidden />
+        </div>
+      </header>
+
+      <section class="palette-panel print-hidden">
+        <div class="panel-copy">
+          <h1>行動履歴管理</h1>
+          <p>
+            行動種別を選ぶか、そのままタイムバーへドラッグして追加できます。行動ログは複数登録でき、
+            重なりだけ禁止されます。
+          </p>
+        </div>
+        <div id="activity-palette" class="activity-palette" aria-label="行動種別"></div>
+      </section>
+
+      <section class="activity-editor-panel print-hidden">
+        <div class="activity-editor-meta">
+          <div class="panel-copy">
+            <h2>選択中の行動ログ</h2>
+            <p id="activity-editor-summary">
+              行動ログをクリックすると、開始日・開始時刻・長さをここで文字入力して反映できます。
+            </p>
+          </div>
+          <section class="day-summary-card" aria-live="polite">
+            <h3>選択中の日サマリー</h3>
+            <p id="selected-day-summary-date">日付エントリを選択すると、ここに集計を表示します。</p>
+            <div id="selected-day-summary-list" class="day-summary-list"></div>
+          </section>
+        </div>
+        <form id="activity-editor-form" class="activity-editor-form">
+          <label class="field">
+            <span>種別</span>
+            <input id="activity-editor-type" type="text" readonly />
+          </label>
+          <label class="field">
+            <span>開始日</span>
+            <input id="activity-editor-date" type="date" />
+          </label>
+          <label class="field">
+            <span>開始時刻</span>
+            <input id="activity-editor-time" type="time" step="60" />
+          </label>
+          <label class="field">
+            <span>長さ(分)</span>
+            <input id="activity-editor-duration" type="number" min="1" step="1" />
+          </label>
+          <button id="activity-editor-apply" type="submit">文字で反映</button>
+        </form>
+      </section>
+
+      <main class="main-content">
+        <section id="empty-state" class="empty-state">
+          <h2>まだ日付エントリがありません</h2>
+          <p>上の「エントリ追加」から日付を作成すると、A4ページ単位で記録を管理できます。</p>
+        </section>
+        <div
+          id="pages-container"
+          class="pages-container"
+          aria-live="polite"
+          tabindex="0"
+        ></div>
+      </main>
+    </div>
+
+    <dialog id="activity-dialog">
+      <form id="activity-form" class="dialog-form" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-kicker">行動ログ編集</p>
+            <h2 id="dialog-type-label">種別</h2>
+          </div>
+        </header>
+        <div class="dialog-grid">
+          <label class="field">
+            <span>開始日</span>
+            <input id="dialog-date" type="date" required />
+          </label>
+          <label class="field">
+            <span>開始時刻</span>
+            <input id="dialog-time" type="time" step="60" required />
+          </label>
+          <label class="field field-wide">
+            <span>長さ(分)</span>
+            <input id="dialog-duration" type="number" min="1" step="1" required />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button id="dialog-cancel-button" type="button" class="secondary-button">キャンセル</button>
+          <button id="dialog-save-button" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <form id="settings-form" class="dialog-form settings-form" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-kicker">表示と履歴</p>
+            <h2>設定</h2>
+          </div>
+        </header>
+        <div class="dialog-grid settings-grid">
+          <label class="field field-wide">
+            <span>極小ログ文字サイズ</span>
+            <div class="range-field">
+              <input id="settings-min-font-size" type="range" min="0.3" max="0.7" step="0.02" />
+              <output id="settings-min-font-size-value" for="settings-min-font-size"></output>
+            </div>
+          </label>
+          <label class="field field-wide">
+            <span>行動ログ・日付・タイムバー・備考の角丸半径</span>
+            <div class="range-field">
+              <input id="settings-corner-radius" type="range" min="0" max="16" step="1" />
+              <output id="settings-corner-radius-value" for="settings-corner-radius"></output>
+            </div>
+          </label>
+          <div class="color-grid field-wide">
+            <label class="field">
+              <span>土曜日背景色</span>
+              <input id="settings-saturday-color" type="color" />
+            </label>
+            <label class="field">
+              <span>日曜日背景色</span>
+              <input id="settings-sunday-color" type="color" />
+            </label>
+            <label class="field">
+              <span>祝日背景色</span>
+              <input id="settings-holiday-color" type="color" />
+            </label>
+          </div>
+          <div class="history-card field-wide">
+            <span>祝日同期</span>
+            <p id="holiday-sync-status">未同期です。</p>
+            <button id="holiday-sync-button" type="button" class="secondary-button">
+              祝日を同期
+            </button>
+          </div>
+          <div class="history-card field-wide">
+            <span>履歴状態</span>
+            <p id="settings-history-status">戻せる: 0 / やり直し: 0</p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button id="settings-cancel-button" type="button" class="secondary-button">キャンセル</button>
+          <button id="settings-save-button" type="submit">設定を保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>

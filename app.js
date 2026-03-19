@@ -258,15 +258,12 @@
     event.preventDefault();
     state.interaction = {
       mode: "create",
-      source: "palette",
       type,
-      dayId: null,
-      rect: null,
-      anchorMinute: null,
-      currentMinute: null,
       hoverDayId: null,
       hoverRect: null,
       hoverMinute: null,
+      releaseClientX: event.clientX,
+      releaseClientY: event.clientY,
       previewActivity: null,
       valid: false,
     };
@@ -322,7 +319,6 @@
     }
     const handle = event.target.closest(".resize-handle");
     const activityBlock = event.target.closest(".activity-block");
-    const timeline = event.target.closest(".timeline[data-day-id]");
 
     if (handle && activityBlock) {
       const activity = getActivityById(activityBlock.dataset.activityId);
@@ -377,32 +373,6 @@
         valid: true,
       };
       return;
-    }
-
-    if (timeline && state.selectedPaletteType) {
-      event.preventDefault();
-      const anchorMinute = getSnappedMinuteFromClientX(
-        timeline.getBoundingClientRect(),
-        event.clientX,
-        { allowOverflow: false, clampInside: true }
-      );
-      state.interaction = {
-        mode: "create",
-        source: "timeline",
-        type: state.selectedPaletteType,
-        dayId: timeline.dataset.dayId,
-        rect: timeline.getBoundingClientRect(),
-        anchorMinute,
-        currentMinute: anchorMinute,
-        hoverDayId: timeline.dataset.dayId,
-        hoverRect: timeline.getBoundingClientRect(),
-        hoverMinute: anchorMinute,
-        previewActivity: null,
-        valid: false,
-      };
-      selectDay(timeline.dataset.dayId, { renderNow: false });
-      updateCreateInteraction(event.clientX, event.clientY);
-      render();
     }
   }
 
@@ -498,10 +468,11 @@
         render();
         return;
       }
-      const candidate =
-        interaction.source === "palette"
-          ? buildCreateCandidateFromPoint(interaction, interaction.releaseClientX, interaction.releaseClientY)
-          : interaction.previewActivity;
+      const candidate = buildCreateCandidateFromPoint(
+        interaction,
+        interaction.releaseClientX,
+        interaction.releaseClientY
+      );
       if (!candidate) {
         render();
         return;
@@ -1228,55 +1199,7 @@
     if (!state.interaction || state.interaction.mode !== "create") {
       return;
     }
-
-    if (state.interaction.source === "palette") {
-      updatePaletteCreateInteraction(clientX, clientY);
-      return;
-    }
-
-    if (!state.interaction.dayId) {
-      const timeline = getTimelineFromPoint(clientX, clientY);
-      if (!timeline) {
-        state.interaction.previewActivity = null;
-        state.interaction.valid = false;
-        return;
-      }
-      state.interaction.dayId = timeline.dataset.dayId;
-      state.interaction.rect = timeline.getBoundingClientRect();
-      state.interaction.anchorMinute = getSnappedMinuteFromClientX(
-        state.interaction.rect,
-        clientX,
-        { allowOverflow: false, clampInside: true }
-      );
-      state.interaction.currentMinute = state.interaction.anchorMinute;
-      state.selectedDayId = state.interaction.dayId;
-      syncEntryDate();
-    }
-
-    if (!state.interaction.rect || !state.interaction.dayId) {
-      return;
-    }
-
-    state.interaction.currentMinute = getSnappedMinuteFromClientX(
-      state.interaction.rect,
-      clientX,
-      { allowOverflow: true, clampInside: false }
-    );
-
-    if (!getDayById(state.interaction.dayId)) {
-      state.interaction.previewActivity = null;
-      state.interaction.valid = false;
-      return;
-    }
-    const previewActivity = buildCreatePreviewForDay(
-      state.interaction.type,
-      state.interaction.dayId,
-      state.interaction.anchorMinute,
-      state.interaction.currentMinute
-    );
-
-    state.interaction.previewActivity = previewActivity;
-    state.interaction.valid = !hasActivityOverlap(previewActivity, null);
+    updatePaletteCreateInteraction(clientX, clientY);
   }
 
   function updatePaletteCreateInteraction(clientX, clientY) {

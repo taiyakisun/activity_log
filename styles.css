@@ -31,6 +31,7 @@
 html,
 body {
   margin: 0;
+  height: 100%;
   min-height: 100%;
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 28%),
@@ -39,6 +40,7 @@ body {
 
 body {
   color: var(--ink);
+  overflow: hidden;
 }
 
 button,
@@ -99,9 +101,14 @@ button:focus-visible {
 }
 
 .app-shell {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   max-width: 1500px;
+  height: 100vh;
+  height: 100dvh;
   margin: 0 auto;
   padding: 22px;
+  overflow: hidden;
 }
 
 .toolbar,
@@ -272,7 +279,10 @@ button:focus-visible {
 
 .main-content {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 22px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .empty-state {
@@ -292,11 +302,15 @@ button:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: 28px;
-  overflow-x: auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: 18px;
 }
 
 .page {
+  flex: none;
   width: min(100%, 1320px);
   aspect-ratio: 297 / 210;
   min-height: 760px;
@@ -717,7 +731,11 @@ dialog::backdrop {
     margin: 0;
   }
 
+  html,
   body {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -730,12 +748,22 @@ dialog::backdrop {
   }
 
   .app-shell {
+    display: block;
+    height: auto;
     max-width: none;
     padding: 0;
+    overflow: visible;
+  }
+
+  .main-content {
+    display: block;
+    min-height: auto;
+    overflow: visible;
   }
 
   .pages-container {
     gap: 0;
+    overflow: visible;
     padding: 0;
   }
 

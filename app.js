@@ -2,6 +2,13 @@
   "use strict";
 
   const STORAGE_KEY = "activity-log-state-v1";
+  const AUTO_SAVE_INTERVAL_OPTIONS = [15, 30, 60, 120, 180, 360];
+  const AUTO_SAVE_DEFAULT_INTERVAL = 60;
+  const AUTO_SAVE_FILE_NAME = "activity-log-autosave.json";
+  const AUTO_SAVE_DB_NAME = "activity-log-autosave";
+  const AUTO_SAVE_DB_VERSION = 1;
+  const AUTO_SAVE_DB_STORE = "handles";
+  const AUTO_SAVE_HANDLE_KEY = "primary";
   const SNAP_OPTIONS = [5, 10, 15, 30, 60];
   const MINUTES_PER_DAY = 24 * 60;
   const ROWS_PER_PAGE = 15;
@@ -39,6 +46,14 @@
     historyLimit: HISTORY_LIMIT,
     settingsDialogOriginSnapshot: null,
     settingsDialogCommitted: false,
+    autoSaveHandle: null,
+    autoSaveHandleName: "",
+    autoSavePermission: "prompt",
+    autoSaveStatusMessage: "",
+    autoSaveLastSavedAt: "",
+    autoSaveTimerId: null,
+    autoSaveInFlight: false,
+    autoSaveDirty: false,
   };
 
   const dom = {
@@ -79,21 +94,29 @@
     settingsSaturdayColor: document.getElementById("settings-saturday-color"),
     settingsSundayColor: document.getElementById("settings-sunday-color"),
     settingsHolidayColor: document.getElementById("settings-holiday-color"),
+    settingsAutoSaveEnabled: document.getElementById("settings-autosave-enabled"),
+    settingsAutoSaveInterval: document.getElementById("settings-autosave-interval"),
+    settingsAutoSaveStatus: document.getElementById("settings-autosave-status"),
+    autoSavePickButton: document.getElementById("autosave-pick-button"),
+    autoSaveSaveNowButton: document.getElementById("autosave-save-now-button"),
     settingsHistoryStatus: document.getElementById("settings-history-status"),
     holidaySyncButton: document.getElementById("holiday-sync-button"),
     holidaySyncStatus: document.getElementById("holiday-sync-status"),
     settingsCancelButton: document.getElementById("settings-cancel-button"),
   };
 
-  init();
+  init().catch((error) => {
+    console.error(error);
+  });
 
-  function init() {
+  async function init() {
     bindEvents();
-    loadStateFromStorage();
+    const storageSnapshot = loadStateFromStorage();
     dom.snapSelect.value = String(state.settings.snapMinutes);
     applyVisualSettings();
     syncEntryDate();
     render();
+    await initializeAutoSave(storageSnapshot);
   }
 
   function bindEvents() {
@@ -126,15 +149,22 @@
     dom.dialogCancelButton.addEventListener("click", () => dom.dialog.close());
     dom.settingsForm.addEventListener("submit", handleSettingsSubmit);
     dom.settingsForm.addEventListener("input", handleSettingsInput);
+    dom.settingsAutoSaveEnabled.addEventListener("change", handleSettingsInput);
+    dom.settingsAutoSaveInterval.addEventListener("change", handleSettingsInput);
+    dom.autoSavePickButton.addEventListener("click", handleChooseAutoSaveFile);
+    dom.autoSaveSaveNowButton.addEventListener("click", handleAutoSaveNowClick);
     dom.holidaySyncButton.addEventListener("click", handleHolidaySyncClick);
     dom.settingsCancelButton.addEventListener("click", cancelSettingsDialog);
     dom.settingsDialog.addEventListener("cancel", handleSettingsDialogCancel);
     dom.settingsDialog.addEventListener("close", handleSettingsDialogClose);
+    document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
   }
 
   function buildDefaultSettings() {
     return {
       snapMinutes: 15,
+      autoSaveEnabled: true,
+      autoSaveIntervalMinutes: AUTO_SAVE_DEFAULT_INTERVAL,
       rowsPerPage: ROWS_PER_PAGE,
       printOrientation: "landscape",
       activityCornerRadius: 9,
@@ -216,6 +246,7 @@
         importState(parsed);
         syncEntryDate();
         saveAndRender();
+        syncAutoSaveSchedule();
       } catch (error) {
         if (historyPushed) {
           discardLastHistorySnapshot();
@@ -584,7 +615,13 @@
     state.settings.saturdayDateColor = normalizeColorSetting(dom.settingsSaturdayColor.value, "#e8f0ff");
     state.settings.sundayDateColor = normalizeColorSetting(dom.settingsSundayColor.value, "#fde4e4");
     state.settings.holidayDateColor = normalizeColorSetting(dom.settingsHolidayColor.value, "#ffe6c8");
+    state.settings.autoSaveEnabled = dom.settingsAutoSaveEnabled.value === "enabled";
+    state.settings.autoSaveIntervalMinutes = normalizeAutoSaveIntervalSetting(
+      dom.settingsAutoSaveInterval.value
+    );
+    state.autoSaveStatusMessage = "";
     syncSettingsDialogFields();
+    syncAutoSaveSchedule();
     applyVisualSettings();
     render();
   }
@@ -599,6 +636,7 @@
     }
     state.settingsDialogCommitted = true;
     persistState();
+    syncAutoSaveSchedule();
     render();
     dom.settingsDialog.close();
   }
@@ -612,6 +650,7 @@
     if (!state.settingsDialogCommitted && state.settingsDialogOriginSnapshot) {
       applyHistorySnapshot(state.settingsDialogOriginSnapshot);
       persistState();
+      syncAutoSaveSchedule();
       render();
     }
     state.settingsDialogOriginSnapshot = null;
@@ -669,6 +708,82 @@
       state.holidaySyncInFlight = false;
       renderHolidaySyncStatus();
     }
+  }
+
+  async function handleChooseAutoSaveFile() {
+    if (!isAutoSaveSupported()) {
+      window.alert("このブラウザでは単一ファイルの自動保存に対応していません。");
+      return;
+    }
+
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: state.autoSaveHandleName || AUTO_SAVE_FILE_NAME,
+        types: [
+          {
+            description: "JSON files",
+            accept: {
+              "application/json": [".json"],
+            },
+          },
+        ],
+      });
+
+      state.autoSaveHandle = handle;
+      state.autoSaveHandleName = typeof handle.name === "string" ? handle.name : AUTO_SAVE_FILE_NAME;
+      state.autoSaveStatusMessage = "";
+      state.settings.autoSaveEnabled = true;
+      state.settings.autoSaveIntervalMinutes = normalizeAutoSaveIntervalSetting(
+        state.settings.autoSaveIntervalMinutes
+      );
+
+      try {
+        await saveAutoSaveHandleToDb(handle);
+      } catch (error) {
+        console.error(error);
+        state.autoSaveStatusMessage =
+          "保存先の記憶に失敗しました。今回の起動中は自動保存できます。";
+      }
+
+      const saved = await saveSnapshotToAutoSaveFile({
+        reason: "manual",
+        requestPermission: true,
+        force: true,
+      });
+      persistState({ markAutoSaveDirty: !saved });
+      syncAutoSaveSchedule();
+      render();
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        return;
+      }
+      console.error(error);
+      state.autoSaveStatusMessage = "自動保存先の設定に失敗しました。";
+      renderAutoSaveStatus();
+      window.alert("自動保存先の設定に失敗しました。");
+    }
+  }
+
+  async function handleAutoSaveNowClick() {
+    const saved = await saveSnapshotToAutoSaveFile({
+      reason: "manual",
+      requestPermission: true,
+      force: true,
+    });
+    if (saved) {
+      render();
+    }
+  }
+
+  function handleDocumentVisibilityChange() {
+    if (document.visibilityState !== "hidden") {
+      return;
+    }
+    void saveSnapshotToAutoSaveFile({
+      reason: "hidden",
+      requestPermission: false,
+      force: false,
+    });
   }
 
   function handleDialogSubmit(event) {
@@ -853,6 +968,7 @@
     renderSelectedDaySummary();
     syncSettingsDialogFields();
     renderSettingsHistoryStatus();
+    renderAutoSaveStatus();
     renderHolidaySyncStatus();
   }
 
@@ -943,6 +1059,10 @@
       state.settings.holidayDateColor,
       "#ffe6c8"
     );
+    dom.settingsAutoSaveEnabled.value = state.settings.autoSaveEnabled ? "enabled" : "disabled";
+    dom.settingsAutoSaveInterval.value = String(
+      normalizeAutoSaveIntervalSetting(state.settings.autoSaveIntervalMinutes)
+    );
     dom.settingsMinFontSizeValue.textContent = `${state.settings.activityMinFontSize.toFixed(2)}rem`;
     dom.settingsCornerRadiusValue.textContent = `${state.settings.activityCornerRadius}px`;
   }
@@ -967,6 +1087,37 @@
       dom.holidaySyncStatus.textContent = "未同期です。";
     }
     dom.holidaySyncButton.disabled = state.holidaySyncInFlight;
+  }
+
+  function renderAutoSaveStatus() {
+    if (
+      !dom.settingsAutoSaveStatus ||
+      !dom.settingsAutoSaveEnabled ||
+      !dom.settingsAutoSaveInterval ||
+      !dom.autoSavePickButton ||
+      !dom.autoSaveSaveNowButton
+    ) {
+      return;
+    }
+
+    const supported = isAutoSaveSupported();
+    dom.settingsAutoSaveEnabled.disabled = !supported;
+    dom.settingsAutoSaveInterval.disabled = !supported || !state.settings.autoSaveEnabled;
+    dom.autoSavePickButton.disabled = !supported || state.autoSaveInFlight;
+    dom.autoSaveSaveNowButton.disabled =
+      !supported || !state.autoSaveHandle || state.autoSaveInFlight;
+
+    if (state.autoSaveInFlight) {
+      dom.settingsAutoSaveStatus.textContent = "自動保存ファイルへ保存中です。";
+      return;
+    }
+
+    if (state.autoSaveStatusMessage) {
+      dom.settingsAutoSaveStatus.textContent = state.autoSaveStatusMessage;
+      return;
+    }
+
+    dom.settingsAutoSaveStatus.textContent = buildAutoSaveStatusMessage();
   }
 
   function applyVisualSettings() {
@@ -1477,6 +1628,10 @@
       ...state.settings,
       ...nextSettings,
       snapMinutes,
+      autoSaveEnabled: normalizeAutoSaveEnabledSetting(nextSettings.autoSaveEnabled),
+      autoSaveIntervalMinutes: normalizeAutoSaveIntervalSetting(
+        nextSettings.autoSaveIntervalMinutes
+      ),
       activityCornerRadius: normalizeCornerRadiusSetting(nextSettings.activityCornerRadius),
       activityMinFontSize: normalizeFontSizeSetting(nextSettings.activityMinFontSize),
       saturdayDateColor: normalizeColorSetting(nextSettings.saturdayDateColor, "#e8f0ff"),
@@ -1500,6 +1655,8 @@
       exportedAt: formatDateTimeString(new Date()),
       settings: {
         snapMinutes: state.settings.snapMinutes,
+        autoSaveEnabled: state.settings.autoSaveEnabled,
+        autoSaveIntervalMinutes: state.settings.autoSaveIntervalMinutes,
         rowsPerPage: state.settings.rowsPerPage,
         printOrientation: state.settings.printOrientation,
         activityCornerRadius: state.settings.activityCornerRadius,
@@ -1528,28 +1685,304 @@
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) {
-        return;
+        return null;
       }
-      importState(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      importState(parsed);
       state.historyPast = [];
       state.historyFuture = [];
+      return parsed;
     } catch (error) {
       console.error(error);
       window.localStorage.removeItem(STORAGE_KEY);
+      return null;
     }
   }
 
-  function persistState() {
+  function persistState(options = {}) {
+    const markAutoSaveDirty = options.markAutoSaveDirty !== false;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(exportState()));
+      if (markAutoSaveDirty) {
+        state.autoSaveDirty = true;
+      }
     } catch (error) {
       console.error(error);
     }
   }
 
-  function saveAndRender() {
-    persistState();
+  function saveAndRender(options = {}) {
+    persistState(options);
     render();
+  }
+
+  async function initializeAutoSave(storageSnapshot) {
+    state.autoSaveStatusMessage = "";
+    if (!isAutoSaveSupported()) {
+      renderAutoSaveStatus();
+      return;
+    }
+
+    try {
+      const handle = await loadAutoSaveHandleFromDb();
+      if (!handle) {
+        renderAutoSaveStatus();
+        return;
+      }
+
+      state.autoSaveHandle = handle;
+      state.autoSaveHandleName = typeof handle.name === "string" ? handle.name : AUTO_SAVE_FILE_NAME;
+
+      const readPermission = await ensureAutoSavePermission(handle, {
+        mode: "read",
+        request: false,
+      });
+      let autoSaveSnapshot = null;
+      if (readPermission === "granted") {
+        autoSaveSnapshot = await readSnapshotFromAutoSaveHandle(handle);
+      }
+
+      const storageKey = getSnapshotSortKey(storageSnapshot);
+      const autoSaveKey = getSnapshotSortKey(autoSaveSnapshot);
+
+      if (autoSaveKey && (!storageKey || autoSaveKey > storageKey)) {
+        importState(autoSaveSnapshot);
+        state.historyPast = [];
+        state.historyFuture = [];
+        syncEntryDate();
+        persistState({ markAutoSaveDirty: false });
+        state.autoSaveDirty = false;
+        state.autoSaveLastSavedAt = autoSaveKey;
+        state.autoSaveStatusMessage = `${state.autoSaveHandleName} から新しいバックアップを復元しました。`;
+        render();
+      } else {
+        state.autoSaveLastSavedAt = autoSaveKey || "";
+        state.autoSaveDirty = Boolean(storageKey && (!autoSaveKey || storageKey > autoSaveKey));
+      }
+
+      const writePermission = await ensureAutoSavePermission(handle, {
+        mode: "readwrite",
+        request: false,
+      });
+      if (writePermission !== "granted" && state.autoSaveHandle) {
+        state.autoSaveStatusMessage = `${state.autoSaveHandleName} へ保存するには再承認が必要です。`;
+      } else if (
+        state.autoSaveStatusMessage !==
+        `${state.autoSaveHandleName} から新しいバックアップを復元しました。`
+      ) {
+        state.autoSaveStatusMessage = "";
+      }
+    } catch (error) {
+      console.error(error);
+      state.autoSaveStatusMessage = "自動保存ファイルの読み込みに失敗しました。";
+    }
+
+    syncAutoSaveSchedule();
+    renderAutoSaveStatus();
+  }
+
+  async function saveSnapshotToAutoSaveFile(options = {}) {
+    const {
+      reason = "timer",
+      requestPermission = false,
+      force = false,
+    } = options;
+
+    if (!isAutoSaveSupported()) {
+      return false;
+    }
+    if (!state.autoSaveHandle) {
+      renderAutoSaveStatus();
+      return false;
+    }
+    if (!force && !state.settings.autoSaveEnabled) {
+      return false;
+    }
+    if (!force && !state.autoSaveDirty) {
+      return true;
+    }
+    if (state.autoSaveInFlight) {
+      return false;
+    }
+
+    state.autoSaveInFlight = true;
+    renderAutoSaveStatus();
+
+    try {
+      const permission = await ensureAutoSavePermission(state.autoSaveHandle, {
+        mode: "readwrite",
+        request: requestPermission,
+      });
+      if (permission !== "granted") {
+        state.autoSaveStatusMessage = `${state.autoSaveHandleName || AUTO_SAVE_FILE_NAME} へ保存するには再承認が必要です。`;
+        syncAutoSaveSchedule();
+        return false;
+      }
+
+      const snapshot = exportState();
+      const writable = await state.autoSaveHandle.createWritable();
+      await writable.write(JSON.stringify(snapshot, null, 2));
+      await writable.close();
+
+      state.autoSaveLastSavedAt = snapshot.exportedAt;
+      state.autoSaveDirty = false;
+      state.autoSaveStatusMessage =
+        reason === "manual"
+          ? `${state.autoSaveHandleName || AUTO_SAVE_FILE_NAME} に保存しました。`
+          : "";
+      syncAutoSaveSchedule();
+      return true;
+    } catch (error) {
+      console.error(error);
+      state.autoSaveStatusMessage = "自動保存ファイルへの書き込みに失敗しました。";
+      return false;
+    } finally {
+      state.autoSaveInFlight = false;
+      renderAutoSaveStatus();
+    }
+  }
+
+  function syncAutoSaveSchedule() {
+    if (state.autoSaveTimerId) {
+      window.clearInterval(state.autoSaveTimerId);
+      state.autoSaveTimerId = null;
+    }
+
+    if (
+      !state.settings.autoSaveEnabled ||
+      !state.autoSaveHandle ||
+      state.autoSavePermission !== "granted"
+    ) {
+      return;
+    }
+
+    const intervalMinutes = normalizeAutoSaveIntervalSetting(state.settings.autoSaveIntervalMinutes);
+    state.autoSaveTimerId = window.setInterval(() => {
+      void saveSnapshotToAutoSaveFile({
+        reason: "timer",
+        requestPermission: false,
+        force: false,
+      });
+    }, intervalMinutes * 60 * 1000);
+  }
+
+  function buildAutoSaveStatusMessage() {
+    if (!isAutoSaveSupported()) {
+      return "このブラウザでは単一ファイルの自動保存に対応していません。";
+    }
+    if (!state.autoSaveHandle) {
+      return "自動保存先が未設定です。設定からファイルを選択してください。";
+    }
+    if (state.autoSavePermission !== "granted") {
+      return `${state.autoSaveHandleName || AUTO_SAVE_FILE_NAME} へ保存するには再承認が必要です。`;
+    }
+
+    const interval = normalizeAutoSaveIntervalSetting(state.settings.autoSaveIntervalMinutes);
+    const modeLabel = state.settings.autoSaveEnabled
+      ? `${interval}分ごとに自動保存します。`
+      : "自動保存はオフです。";
+
+    if (!state.autoSaveLastSavedAt) {
+      return `${state.autoSaveHandleName || AUTO_SAVE_FILE_NAME} / ${modeLabel}`;
+    }
+
+    return `${
+      state.autoSaveHandleName || AUTO_SAVE_FILE_NAME
+    } / 最終保存 ${formatAutoSaveLabel(state.autoSaveLastSavedAt)} / ${modeLabel}`;
+  }
+
+  function isAutoSaveSupported() {
+    return (
+      typeof window.showSaveFilePicker === "function" &&
+      typeof window.indexedDB !== "undefined"
+    );
+  }
+
+  async function ensureAutoSavePermission(handle, options = {}) {
+    const { mode = "readwrite", request = false } = options;
+    if (!handle) {
+      state.autoSavePermission = "denied";
+      return "denied";
+    }
+    if (typeof handle.queryPermission !== "function") {
+      state.autoSavePermission = "granted";
+      return "granted";
+    }
+
+    const descriptor = { mode };
+    let permission = await handle.queryPermission(descriptor);
+    if (permission !== "granted" && request && typeof handle.requestPermission === "function") {
+      permission = await handle.requestPermission(descriptor);
+    }
+    state.autoSavePermission = permission;
+    return permission;
+  }
+
+  async function readSnapshotFromAutoSaveHandle(handle) {
+    const file = await handle.getFile();
+    if (!file || !file.size) {
+      return null;
+    }
+    const text = await file.text();
+    if (!text.trim()) {
+      return null;
+    }
+    return JSON.parse(text);
+  }
+
+  async function loadAutoSaveHandleFromDb() {
+    const db = await openAutoSaveDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(AUTO_SAVE_DB_STORE, "readonly");
+        const store = transaction.objectStore(AUTO_SAVE_DB_STORE);
+        const request = store.get(AUTO_SAVE_HANDLE_KEY);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error || new Error("Failed to load handle"));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async function saveAutoSaveHandleToDb(handle) {
+    const db = await openAutoSaveDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction(AUTO_SAVE_DB_STORE, "readwrite");
+        const store = transaction.objectStore(AUTO_SAVE_DB_STORE);
+        const request = store.put(handle, AUTO_SAVE_HANDLE_KEY);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error || new Error("Failed to save handle"));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  function openAutoSaveDb() {
+    return new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(AUTO_SAVE_DB_NAME, AUTO_SAVE_DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(AUTO_SAVE_DB_STORE)) {
+          db.createObjectStore(AUTO_SAVE_DB_STORE);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Failed to open IndexedDB"));
+    });
+  }
+
+  function getSnapshotSortKey(snapshot) {
+    if (!snapshot || typeof snapshot.exportedAt !== "string") {
+      return "";
+    }
+    return snapshot.exportedAt;
+  }
+
+  function formatAutoSaveLabel(value) {
+    return String(value || "").replace("T", " ");
   }
 
   function createHistorySnapshot() {
@@ -1571,6 +2004,10 @@
     state.settings = {
       ...buildDefaultSettings(),
       ...snapshot.settings,
+      autoSaveEnabled: normalizeAutoSaveEnabledSetting(snapshot.settings.autoSaveEnabled),
+      autoSaveIntervalMinutes: normalizeAutoSaveIntervalSetting(
+        snapshot.settings.autoSaveIntervalMinutes
+      ),
       activityCornerRadius: normalizeCornerRadiusSetting(snapshot.settings.activityCornerRadius),
       activityMinFontSize: normalizeFontSizeSetting(snapshot.settings.activityMinFontSize),
       saturdayDateColor: normalizeColorSetting(snapshot.settings.saturdayDateColor, "#e8f0ff"),
@@ -1615,6 +2052,7 @@
     state.historyFuture.push(current);
     applyHistorySnapshot(previous);
     persistState();
+    syncAutoSaveSchedule();
     render();
   }
 
@@ -1630,6 +2068,7 @@
     }
     applyHistorySnapshot(next);
     persistState();
+    syncAutoSaveSchedule();
     render();
   }
 
@@ -1819,6 +2258,20 @@
       count: Number.isFinite(Number(value.count)) ? Number(value.count) : 0,
       message: typeof value.message === "string" ? value.message : "",
     };
+  }
+
+  function normalizeAutoSaveEnabledSetting(value) {
+    if (value === undefined || value === null) {
+      return true;
+    }
+    return value !== false;
+  }
+
+  function normalizeAutoSaveIntervalSetting(value) {
+    const nextValue = Number(value);
+    return AUTO_SAVE_INTERVAL_OPTIONS.includes(nextValue)
+      ? nextValue
+      : AUTO_SAVE_DEFAULT_INTERVAL;
   }
 
   function summarizeActivitiesForDay(day) {

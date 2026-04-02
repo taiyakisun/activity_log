@@ -170,6 +170,40 @@
             </button>
           </div>
           <div class="history-card field-wide">
+            <span>自動保存</span>
+            <p id="settings-autosave-status">
+              自動保存先が未設定です。設定からファイルを選択してください。
+            </p>
+            <div class="autosave-grid">
+              <label class="field">
+                <span>状態</span>
+                <select id="settings-autosave-enabled">
+                  <option value="enabled" selected>有効</option>
+                  <option value="disabled">無効</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>間隔</span>
+                <select id="settings-autosave-interval">
+                  <option value="15">15分ごと</option>
+                  <option value="30">30分ごと</option>
+                  <option value="60" selected>60分ごと</option>
+                  <option value="120">120分ごと</option>
+                  <option value="180">180分ごと</option>
+                  <option value="360">360分ごと</option>
+                </select>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="autosave-pick-button" type="button" class="secondary-button">
+                保存先を選択
+              </button>
+              <button id="autosave-save-now-button" type="button" class="secondary-button">
+                今すぐ保存
+              </button>
+            </div>
+          </div>
+          <div class="history-card field-wide">
             <span>履歴状態</span>
             <p id="settings-history-status">戻せる: 0 / やり直し: 0</p>
           </div>

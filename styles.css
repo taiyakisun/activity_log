@@ -11,9 +11,14 @@
   --date-width: 104px;
   --note-width: 240px;
   --row-height: 40px;
+  --control-height: 34px;
   --page-width: 297mm;
   --page-height: 210mm;
-  --page-padding: 14mm;
+  --page-padding: 34px 38px 28px;
+  --page-header-gap: 18px;
+  --page-header-padding-bottom: 14px;
+  --page-rows-gap: 8px;
+  --ruler-height: 28px;
   --radius: 12px;
   --shadow-lg: 0 24px 40px rgba(55, 42, 26, 0.12);
   --entry-corner-radius: 9px;
@@ -314,7 +319,7 @@ button:focus-visible {
   width: min(100%, 1320px);
   aspect-ratio: 297 / 210;
   min-height: 760px;
-  padding: 34px 38px 28px;
+  padding: var(--page-padding);
   border-radius: 20px;
   border: 1px solid rgba(82, 74, 63, 0.16);
   background:
@@ -335,11 +340,11 @@ button:focus-visible {
 
 .page-header {
   display: grid;
-  gap: 18px;
+  gap: var(--page-header-gap);
   position: sticky;
   top: 0;
   z-index: 2;
-  padding-bottom: 14px;
+  padding-bottom: var(--page-header-padding-bottom);
   background: linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 253, 248, 0.94));
   box-shadow: 0 10px 18px rgba(255, 253, 248, 0.96);
 }
@@ -365,7 +370,7 @@ button:focus-visible {
 
 .ruler-track {
   position: relative;
-  height: 28px;
+  height: var(--ruler-height);
 }
 
 .ruler-track::before {
@@ -395,7 +400,7 @@ button:focus-visible {
 
 .page-rows {
   display: grid;
-  gap: 8px;
+  gap: var(--page-rows-gap);
 }
 
 .day-row,
@@ -427,7 +432,7 @@ button:focus-visible {
   background: rgba(255, 255, 255, 0.86);
   color: var(--ink);
   justify-self: stretch;
-  min-height: 34px;
+  min-height: var(--control-height);
   padding: 6px 10px;
   white-space: nowrap;
   overflow: hidden;
@@ -448,7 +453,7 @@ button:focus-visible {
 
 .timeline {
   position: relative;
-  height: 34px;
+  height: var(--control-height);
   border-radius: var(--entry-corner-radius, 14px);
   border: 1px solid rgba(82, 74, 63, 0.18);
   background:
@@ -479,7 +484,7 @@ button:focus-visible {
 }
 
 .note-input {
-  min-height: 34px;
+  min-height: var(--control-height);
   padding-top: 7px;
   padding-bottom: 7px;
   border-radius: var(--entry-corner-radius, 14px);
@@ -487,7 +492,7 @@ button:focus-visible {
 
 .note-print {
   display: none;
-  min-height: 34px;
+  min-height: var(--control-height);
   padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: var(--entry-corner-radius, 14px);
@@ -749,6 +754,16 @@ dialog::backdrop {
     margin: 0;
   }
 
+  :root {
+    --page-padding: 20px 24px 16px;
+    --page-header-gap: 10px;
+    --page-header-padding-bottom: 8px;
+    --page-rows-gap: 4px;
+    --row-height: 36px;
+    --control-height: 30px;
+    --ruler-height: 24px;
+  }
+
   html,
   body {
     height: auto;
@@ -786,6 +801,8 @@ dialog::backdrop {
   }
 
   .page {
+    display: grid;
+    grid-template-rows: auto 1fr;
     width: var(--page-width);
     min-height: auto;
     height: var(--page-height);
@@ -794,9 +811,12 @@ dialog::backdrop {
     border-radius: 0;
     box-shadow: none;
     margin: 0;
-    padding: 34px 38px 28px;
+    padding: var(--page-padding);
+    overflow: hidden;
     page-break-after: always;
     break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid-page;
   }
 
   .page:last-child {
@@ -812,10 +832,20 @@ dialog::backdrop {
     position: static;
     top: auto;
     z-index: auto;
-    padding-bottom: 0;
+    padding-bottom: var(--page-header-padding-bottom);
     background: none;
     box-shadow: none;
-    margin-bottom: 14px;
+  }
+
+  .page-rows {
+    min-height: 0;
+    align-content: start;
+  }
+
+  .day-row,
+  .day-row-placeholder {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   .note-input {

@@ -189,6 +189,7 @@ button:focus-visible {
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.8);
   color: var(--ink);
+  touch-action: none;
 }
 
 .activity-editor-panel {
@@ -512,6 +513,7 @@ button:focus-visible {
   border: 1px solid rgba(43, 36, 29, 0.12);
   box-shadow: 0 8px 16px rgba(34, 24, 18, 0.12);
   cursor: grab;
+  touch-action: none;
   overflow: hidden;
   user-select: none;
   transition:
@@ -557,6 +559,7 @@ button:focus-visible {
   height: 100%;
   background: rgba(255, 255, 255, 0.35);
   cursor: ew-resize;
+  touch-action: none;
 }
 
 .resize-handle.left {

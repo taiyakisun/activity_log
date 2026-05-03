@@ -142,6 +142,7 @@
 
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
     document.addEventListener("keydown", handleDocumentKeyDown);
 
     dom.activityEditorForm.addEventListener("submit", handleActivityEditorSubmit);
@@ -287,8 +288,11 @@
     }
     state.selectedPaletteType = type;
     event.preventDefault();
+    capturePointer(dom.palette, event.pointerId);
     state.interaction = {
       mode: "create",
+      pointerId: event.pointerId,
+      pointerCaptureElement: dom.palette,
       type,
       hoverDayId: null,
       hoverRect: null,
@@ -363,8 +367,11 @@
         focusSurface: true,
       });
       event.preventDefault();
+      capturePointer(dom.pages, event.pointerId);
       state.interaction = {
         mode: "resize",
+        pointerId: event.pointerId,
+        pointerCaptureElement: dom.pages,
         edge: handle.dataset.edge,
         activityId: activity.id,
         rect: timelineRect,
@@ -391,8 +398,11 @@
         focusSurface: true,
       });
       event.preventDefault();
+      capturePointer(dom.pages, event.pointerId);
       state.interaction = {
         mode: "move-pending",
+        pointerId: event.pointerId,
+        pointerCaptureElement: dom.pages,
         activityId: activity.id,
         rect: timelineRect,
         anchorClientX: event.clientX,
@@ -457,6 +467,9 @@
     if (!state.interaction) {
       return;
     }
+    if (event.cancelable) {
+      event.preventDefault();
+    }
     if (state.interaction.mode === "move-pending") {
       const movedX = event.clientX - state.interaction.anchorClientX;
       const movedY = event.clientY - state.interaction.anchorClientY;
@@ -488,6 +501,7 @@
 
     const interaction = state.interaction;
     state.interaction = null;
+    releasePointerCapture(interaction);
 
     if (interaction.mode === "move-pending") {
       syncSelectionUi();
@@ -525,6 +539,16 @@
       }
       render();
     }
+  }
+
+  function handlePointerCancel() {
+    if (!state.interaction) {
+      return;
+    }
+    const interaction = state.interaction;
+    state.interaction = null;
+    releasePointerCapture(interaction);
+    render();
   }
 
   function handleDocumentKeyDown(event) {
@@ -844,6 +868,9 @@
 
   function renderPages() {
     const days = getSortedDays();
+    const shouldPreserveScroll = !!state.interaction;
+    const previousScrollTop = dom.pages.scrollTop;
+    const previousScrollLeft = dom.pages.scrollLeft;
     dom.emptyState.hidden = days.length > 0;
     if (!days.length) {
       dom.pages.innerHTML = "";
@@ -888,6 +915,11 @@
         `;
       })
       .join("");
+
+    if (shouldPreserveScroll) {
+      dom.pages.scrollTop = previousScrollTop;
+      dom.pages.scrollLeft = previousScrollLeft;
+    }
   }
 
   function renderDayRow(day, segments, snapCount) {
@@ -1184,6 +1216,32 @@
       dom.pages.focus({ preventScroll: true });
     } catch (error) {
       dom.pages.focus();
+    }
+  }
+
+  function capturePointer(element, pointerId) {
+    if (!element || typeof element.setPointerCapture !== "function") {
+      return;
+    }
+    try {
+      element.setPointerCapture(pointerId);
+    } catch (error) {
+      // The pointer may already be gone on some browser/device combinations.
+    }
+  }
+
+  function releasePointerCapture(interaction) {
+    const element = interaction ? interaction.pointerCaptureElement : null;
+    const pointerId = interaction ? interaction.pointerId : null;
+    if (!element || pointerId == null || typeof element.releasePointerCapture !== "function") {
+      return;
+    }
+    try {
+      if (typeof element.hasPointerCapture !== "function" || element.hasPointerCapture(pointerId)) {
+        element.releasePointerCapture(pointerId);
+      }
+    } catch (error) {
+      // Ignore stale pointer capture during cancellation/unmount races.
     }
   }
 

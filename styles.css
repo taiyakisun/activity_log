@@ -12,6 +12,7 @@
   --note-width: 240px;
   --row-height: 40px;
   --control-height: 34px;
+  --day-summary-list-height: 64px;
   --page-width: 297mm;
   --page-height: 210mm;
   --page-padding: 34px 38px 28px;
@@ -243,6 +244,15 @@ button:focus-visible {
 .day-summary-list {
   display: grid;
   gap: 6px;
+  height: var(--day-summary-list-height);
+  align-content: start;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+#activity-editor-summary,
+#selected-day-summary-date {
+  min-height: 1.6em;
 }
 
 .day-summary-item,
@@ -250,7 +260,7 @@ button:focus-visible {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border: 1px solid rgba(82, 74, 63, 0.1);
   border-radius: calc(var(--radius) + 1px);
   background: rgba(255, 255, 255, 0.75);
@@ -310,6 +320,7 @@ button:focus-visible {
   gap: 28px;
   min-height: 0;
   overflow: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 18px;

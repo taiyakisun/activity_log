@@ -522,22 +522,23 @@
         render();
         return;
       }
-      const result = upsertActivity(candidate);
+      const result = upsertActivity(candidate, { preservePagesScroll: true });
       if (!result.ok) {
         window.alert(result.message);
+        render({ preservePagesScroll: true });
       }
-      render();
       return;
     }
 
     if (interaction.mode === "move" || interaction.mode === "resize") {
       const result = upsertActivity(interaction.previewActivity, {
         ignoreId: interaction.activityId,
+        preservePagesScroll: true,
       });
       if (!result.ok) {
         window.alert(result.message);
+        render({ preservePagesScroll: true });
       }
-      render();
     }
   }
 
@@ -592,7 +593,7 @@
     pushHistorySnapshot();
     state.activities = state.activities.filter((item) => item.id !== activity.id);
     state.selectedActivityId = null;
-    saveAndRender();
+    saveAndRender({ preservePagesScroll: true });
   }
 
   function handleActivityEditorSubmit(event) {
@@ -842,11 +843,35 @@
     dom.dialog.close();
   }
 
-  function render() {
+  function render(options = {}) {
+    const shouldPreservePagesScroll =
+      !!state.interaction || options.preservePagesScroll === true;
+    const pagesScrollSnapshot = shouldPreservePagesScroll
+      ? capturePagesScroll()
+      : null;
     applyVisualSettings();
     renderPalette();
-    renderPages();
+    renderPages(options);
     updateControls();
+    restorePagesScroll(pagesScrollSnapshot);
+  }
+
+  function capturePagesScroll() {
+    if (!dom.pages) {
+      return null;
+    }
+    return {
+      top: dom.pages.scrollTop,
+      left: dom.pages.scrollLeft,
+    };
+  }
+
+  function restorePagesScroll(snapshot) {
+    if (!snapshot || !dom.pages) {
+      return;
+    }
+    dom.pages.scrollTop = snapshot.top;
+    dom.pages.scrollLeft = snapshot.left;
   }
 
   function renderPalette() {
@@ -866,9 +891,10 @@
     }).join("");
   }
 
-  function renderPages() {
+  function renderPages(options = {}) {
     const days = getSortedDays();
-    const shouldPreserveScroll = !!state.interaction;
+    const shouldPreserveScroll =
+      !!state.interaction || options.preservePagesScroll === true;
     const previousScrollTop = dom.pages.scrollTop;
     const previousScrollLeft = dom.pages.scrollLeft;
     dom.emptyState.hidden = days.length > 0;
@@ -1344,7 +1370,7 @@
 
     state.activities = normalizeActivities(state.activities);
     state.selectedActivityId = normalized.activity.id;
-    saveAndRender();
+    saveAndRender({ preservePagesScroll: options.preservePagesScroll === true });
     return { ok: true, activity: normalized.activity };
   }
 
@@ -1771,7 +1797,7 @@
 
   function saveAndRender(options = {}) {
     persistState(options);
-    render();
+    render(options);
   }
 
   async function initializeAutoSave(storageSnapshot) {
